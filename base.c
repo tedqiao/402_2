@@ -179,10 +179,11 @@ void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
     MEM_WRITE(Z502DiskSetID, &diskID);
     MEM_READ(Z502DiskStatus, &diskStatus);
  
-    EnQueueDisk(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB));
-    
+    EnQueueDiskHead(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB));
+    if(diskID==3)
+    printf("id-1 %ld id-2 %ld id-3 %ld",diskqueue[1]->front->diskID,diskqueue[2]->front->diskID,diskqueue[3]->front->diskID);
     dispatch();
-    Z502SwitchContext( SWITCH_CONTEXT_KILL_MODE, &currentPCB->context );
+    Z502SwitchContext(SWITCH_CONTEXT_KILL_MODE, &currentPCB->context);
 
 }
 

@@ -419,6 +419,34 @@ DISK InitDisk(long diskID,long sectorID, int readOrWrite,PCB pnode){
    // mydisk->PCB->pid=
     return mydisk;
 }
+DISK EnQueueDiskHead(DiskQueue *queue,DISK pnode){
+    DISK tmp;
+    if(pnode != NULL)
+    {
+        
+        if(queue->front==NULL)
+        {
+            
+            queue->front = pnode;
+            queue->rear = pnode;
+            
+        }
+        else
+        {
+            tmp= queue->front;
+            pnode->next=tmp;
+            queue->front=pnode;
+            //queue->rear->next = pnode;
+        }
+        
+        //queue->rear = pnode;
+        queue->size++;
+        
+    }
+        pnode->next=NULL;
+    
+    return pnode;
+}
 
 /*int main(){
     PCB pcb1 = InitPCB(21);

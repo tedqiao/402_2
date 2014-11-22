@@ -134,5 +134,6 @@ void enStack(DiskStack *stack,DISK disk);
 DISK popStack(DiskStack *stack);
 
 DISK EnQueueDisk(DiskQueue *queue,DISK pnode);
+DISK EnQueueDiskHead(DiskQueue *queue,DISK pnode);
 
 #endif
