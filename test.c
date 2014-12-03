@@ -1494,7 +1494,7 @@ void test2c(void) {
     data_read = (DISK_DATA *) calloc(1, sizeof(DISK_DATA));
     if (data_read == 0)
         printf("Something screwed up allocating space in test2c\n");
-    printf("didi run ----------\n");
+    
     GET_PROCESS_ID("", &Z502_REG4, &Z502_REG9);
     
     sector = Z502_REG4;
@@ -1503,19 +1503,19 @@ void test2c(void) {
     for (Iterations = 0; Iterations < TEST2C_LOOPS; Iterations++) {
         // Pick some location on the disk to write to
         disk_id = (Z502_REG4 / 2) % MAX_NUMBER_OF_DISKS + 1;
-        sector = ( Iterations + (sector * 177)) % NUM_LOGICAL_SECTORS;
+        //sector = ( Iterations + (sector * 177)) % NUM_LOGICAL_SECTORS;
+        sector = Z502_REG4 + (Iterations * 17) % NUM_LOGICAL_SECTORS;  // Bugfix 4.11
         data_written->int_data[0] = disk_id;
         data_written->int_data[1] = sanity;
         data_written->int_data[2] = sector;
         data_written->int_data[3] = (int) Z502_REG4;
-        printf( "Test2c - Pid = %d, Writing from Addr = %X\n", (int)Z502_REG4, (unsigned int )(data_written->char_data));
+        //printf( "Test2c - Pid = %d, Writing from Addr = %X\n", (int)Z502_REG4, (unsigned int )(data_written->char_data));
         DISK_WRITE(disk_id, sector, (char* )(data_written->char_data));
         
         // Now read back the same data.  Note that we assume the
         // disk_id and sector have not been modified by the previous
         // call.
         DISK_READ(disk_id, sector, (char* )(data_read->char_data));
-        
         
         if ((data_read->int_data[0] != data_written->int_data[0])
             || (data_read->int_data[1] != data_written->int_data[1])
@@ -1542,7 +1542,8 @@ void test2c(void) {
     
     for (Iterations = 0; Iterations < TEST2C_LOOPS; Iterations++) {
         disk_id = (Z502_REG4 / 2) % MAX_NUMBER_OF_DISKS + 1;
-        sector = ( Iterations + (sector * 177)) % NUM_LOGICAL_SECTORS;
+        //sector = ( Iterations + (sector * 177)) % NUM_LOGICAL_SECTORS;
+        sector = Z502_REG4 + (Iterations * 17) % NUM_LOGICAL_SECTORS;  // Bugfix 4.11
         data_written->int_data[0] = disk_id;
         data_written->int_data[1] = sanity;
         data_written->int_data[2] = sector;
@@ -1572,7 +1573,8 @@ void test2c(void) {
     printf("TEST2C:    PID %ld, Ends at Time %ld\n", Z502_REG4, Z502_REG8);
     TERMINATE_PROCESS(-1, &Z502_REG9);
     
-}                                       // End of test2c
+}                                       // End of test2c    
+
 
 /**************************************************************************
  
@@ -1643,15 +1645,16 @@ void test2d(void) {
     }
     GET_TIME_OF_DAY(&Z502_REG7);
     printf("Test2d, PID %ld, Ends at Time %ld\n\n", Z502_REG4, Z502_REG7);
+    printf("end??????");
     TERMINATE_PROCESS(-2, &Z502_REG5);
     
 }                                   // End of test2d
 
 /**************************************************************************
  
- Test2e causes extensive page replacement.  It simply advances through
- virtual memory.    It uses random data values, but the addresses accessed
- are very deterministic.
+ Test2e touches a number of logical pages - but the number of pages touched
+ will fit into the physical memory available.
+ The addresses accessed are pseudo-random distributed in a non-uniform manner.
  
  Z502_REG1  - data that was written.
  Z502_REG2  - data that was read from memory.
@@ -1664,26 +1667,35 @@ void test2d(void) {
 
 #define         STEP_SIZE               VIRTUAL_MEM_PAGES/(4 * PHYS_MEM_PGS )
 #define         DISPLAY_GRANULARITY2e     16 * STEP_SIZE
+#define         TOTAL_ITERATIONS        256
 void test2e(void) {
     int Iteration, MixItUp;
-    int DataWritten[VIRTUAL_MEM_PAGES];
+    int AddressesWritten[VIRTUAL_MEM_PAGES];
     
     GET_PROCESS_ID("", &Z502_REG4, &Z502_REG9);
     printf("\n\nRelease %s:Test 2e: Pid %ld\n", CURRENT_REL, Z502_REG4);
     
-    for (Iteration = 0; Iteration < VIRTUAL_MEM_PAGES; Iteration += STEP_SIZE) {
-        Z502_REG3 = PGSIZE * Iteration;           // Generate address
-        GetSkewedRandomNumber(&Z502_REG1, 1024);  // Generate Data
-        DataWritten[Iteration] = Z502_REG1;       // Keep record of what was written
+    for (Iteration = 0; Iteration < TOTAL_ITERATIONS; Iteration++ )
+        AddressesWritten[Iteration] = 0;
+    for (Iteration = 0; Iteration < TOTAL_ITERATIONS; Iteration++ ) {
+        GetSkewedRandomNumber(&Z502_REG3, 1024);  // Generate Address    Bugfix 4.12
+        Z502_REG3 = 4 * (Z502_REG3 / 4);          // Put address on mod 4 boundary
+        AddressesWritten[Iteration] = Z502_REG3;  // Keep record of location written
+        Z502_REG1 = PGSIZE * Z502_REG3;// Generate Data    Bugfix 4.12
+        //printf("PID= %ld  address= %6ld   written= %6ld   read= %6ld\n",
+          //     Z502_REG4, Z502_REG3, Z502_REG1, Z502_REG2);
         MEM_WRITE(Z502_REG3, &Z502_REG1);         // Write the data
         
         MEM_READ(Z502_REG3, &Z502_REG2); // Read back data
         
         if (Iteration % DISPLAY_GRANULARITY2e == 0)
+            printf("PID= %ld  address= %6ld   written= %6ld   read= %6ld\n",
+                   Z502_REG4, Z502_REG3, Z502_REG1, Z502_REG2);
+        if (Z502_REG2 != Z502_REG1) {  // Written = Read?
+            printf("AN ERROR HAS OCCURRED ON 1ST READBACK.\n");
             printf("PID= %ld  address= %ld   written= %ld   read= %ld\n",
                    Z502_REG4, Z502_REG3, Z502_REG1, Z502_REG2);
-        if (Z502_REG2 != Z502_REG1) // Written = read?
-            printf("AN ERROR HAS OCCURRED.\n");
+        }
         
         // It makes life more fun!! to write the data again
         MEM_WRITE(Z502_REG3, &Z502_REG1); // Write the data
@@ -1694,22 +1706,23 @@ void test2e(void) {
     // We try to jump around a bit in choosing addresses we read back
     printf("Reading back data: test 2e, PID %ld.\n", Z502_REG4);
     
-    for (Iteration = 0; Iteration < VIRTUAL_MEM_PAGES; Iteration += STEP_SIZE) {
-        
-        if ( Iteration % 2 )
+    for (Iteration = 0; Iteration < TOTAL_ITERATIONS; Iteration++ ) {
+        if (!( Iteration % 2 ))      // Bugfix 4.11
             MixItUp = Iteration;
         else
-            MixItUp = VIRTUAL_MEM_PAGES - Iteration;
-        Z502_REG3 = PGSIZE * MixItUp;         // Generate address
-        Z502_REG1 = DataWritten[MixItUp];     // Get what we wrote
+            MixItUp = TOTAL_ITERATIONS - Iteration;
+        Z502_REG3 = AddressesWritten[MixItUp];     // Get location we wrote
+        Z502_REG1 = PGSIZE * Z502_REG3;           // Generate Data    Bugfix 4.12
         MEM_READ(Z502_REG3, &Z502_REG2);      // Read back data
         
         if (Iteration % DISPLAY_GRANULARITY2e == 0)
+            printf("PID= %ld  address= %6ld   written= %6ld   read= %6ld\n",
+                   Z502_REG4, Z502_REG3, Z502_REG1, Z502_REG2);
+        if (Z502_REG2 != Z502_REG1) {  // Written = Read?
+            printf("AN ERROR HAS OCCURRED ON 2ND READBACK.\n");
             printf("PID= %ld  address= %ld   written= %ld   read= %ld\n",
                    Z502_REG4, Z502_REG3, Z502_REG1, Z502_REG2);
-        if (Z502_REG2 != Z502_REG1) // Written = read?
-            printf("AN ERROR HAS OCCURRED.\n");
-        
+        }
     }    // End of for loop
     TERMINATE_PROCESS(-2, &Z502_REG5);      // Added 12/1/2013
 }                                           // End of test2e
@@ -1796,6 +1809,7 @@ void test2f(void) {
     TERMINATE_PROCESS(-1, &Z502_REG9);
     
 }                                 // End of test2f
+
 
 /**************************************************************************
  Test2g

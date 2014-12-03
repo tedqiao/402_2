@@ -382,16 +382,12 @@ DISK EnQueueDisk(DiskQueue *queue,DISK pnode){
     
     if(pnode != NULL)
     {
-        
         if(queue->front==NULL)
         {
-            
             queue->front = pnode;
-            
         }
         else
         {
-            
             queue->rear->next = pnode;
         }
         
@@ -405,7 +401,27 @@ DISK EnQueueDisk(DiskQueue *queue,DISK pnode){
 }
 
 
-DISK InitDisk(long diskID,long sectorID, int readOrWrite,PCB pnode){
+DISK InitDisk(long diskID,long sectorID, int readOrWrite,PCB pnode,int token){
+    DISK mydisk=(DISK)malloc(sizeof(disk));
+    if (diskID<0) {
+        return NULL;
+    }
+    mydisk->diskID = diskID;
+    mydisk->sectorID=sectorID;
+    mydisk->readOrWrite=readOrWrite;
+    mydisk->alreadyGetDisk=token;
+    mydisk->next=NULL;
+    mydisk->PCB = pnode;
+    //mydisk->PCB->pid=pnode->pid;
+    //mydisk->PCB->context=pnode->context;
+   // printf("%d       %d",&mydisk->PCB->context,&pnode->context);
+    //mydisk->PCB->prior=pnode->prior;
+   // strcpy(mydisk->PCB->name,pnode->name);
+   // mydisk->PCB->pid=
+    return mydisk;
+}
+
+DISK InitDisk2(long diskID,long sectorID, int readOrWrite,PCB pnode){
     DISK mydisk = (DISK)malloc(sizeof(disk));
     if (diskID<0) {
         return NULL;
@@ -413,12 +429,13 @@ DISK InitDisk(long diskID,long sectorID, int readOrWrite,PCB pnode){
     mydisk->diskID = diskID;
     mydisk->sectorID=sectorID;
     mydisk->readOrWrite=readOrWrite;
-    mydisk->alreadyGetDisk=1;
+    mydisk->alreadyGetDisk=0;
     mydisk->next=NULL;
     mydisk->PCB = pnode;
-   // mydisk->PCB->pid=
+    // mydisk->PCB->pid=
     return mydisk;
 }
+
 DISK EnQueueDiskHead(DiskQueue *queue,DISK pnode){
     DISK tmp;
     if(pnode != NULL)
@@ -434,8 +451,9 @@ DISK EnQueueDiskHead(DiskQueue *queue,DISK pnode){
         else
         {
             tmp= queue->front;
-            pnode->next=tmp;
             queue->front=pnode;
+            queue->front->next=tmp;
+            
             //queue->rear->next = pnode;
         }
         
@@ -443,10 +461,13 @@ DISK EnQueueDiskHead(DiskQueue *queue,DISK pnode){
         queue->size++;
         
     }
-        pnode->next=NULL;
+        //pnode->next=NULL;
     
     return pnode;
 }
+
+
+
 
 /*int main(){
     PCB pcb1 = InitPCB(21);

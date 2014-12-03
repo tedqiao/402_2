@@ -57,6 +57,7 @@ typedef struct
     long pageID;
     long pid;
     int isAvailable;
+    int Rbit;
 } FRAME;
 
 typedef struct Node {
@@ -93,6 +94,16 @@ typedef struct message {
 }message;
 
 
+typedef struct shadow
+{
+    int page;
+    int disk;
+    int sector;
+    int frame;
+    BOOL isAvailable;
+} Shadow_Page_Table;
+
+
 Queue *InitQueue();
 
 Node *InitPCB(INT32 wakeuptime);
@@ -121,19 +132,19 @@ MsgQueue *InitMsgQueue();
 
 MSG DeQueueMsg(MsgQueue *queue);
 
-DiskQueue *InitDiskQueue();
+
 
 //2
 
 DiskStack *InitDiskStack();
 DiskQueue *InitDiskQueue();
 
-
-DISK InitDisk(long diskID,long sectorID, int readOrWrite,PCB pnode);
+DISK InitDisk(long diskID,long sectorID, int readOrWrite,PCB pnode,int token);
 void enStack(DiskStack *stack,DISK disk);
 DISK popStack(DiskStack *stack);
 
 DISK EnQueueDisk(DiskQueue *queue,DISK pnode);
 DISK EnQueueDiskHead(DiskQueue *queue,DISK pnode);
+DISK InitDisk2(long diskID,long sectorID, int readOrWrite,PCB pnode);
 
 #endif

@@ -74,9 +74,21 @@ PCB currentPCB;
 PCB temp;
 char action[8];
 int printerClt=1;
+static int counter=0;
+int modelctrl=1;
+
+
+
 UINT16 *PAGE_HEAD[10];
 FRAME frame[PHYS_MEM_PGS];
 DiskQueue *diskqueue[MAX_NUMBER_OF_DISKS];
+Shadow_Page_Table shadow_page_table[MAX_NUMBER_OF_DISKS][VIRTUAL_MEM_PAGES];
+
+
+
+extern char MEMORY[PHYS_MEM_PGS * PGSIZE ];
+INT32 static victim=0;
+INT32 static realvic=0;
 
 long CreateProcess(PCB pnode);
 INT32 GetIDByName(char* name);
@@ -88,32 +100,171 @@ int  ChangePriorByID(long pid, int priority);
 INT32  SuspendByID(long ID);
 INT32  ResumeByID(long ID);
 
-
-
 //==-----
 void initFrame();
+void shadow_page_table_Init();
 void dispatch();
 void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite);
 void DiskQueuePrinter(DiskQueue *queue);
+void transfer(INT32 ID);
+void FIFO(long status);
+void sec_chance(long status);
+
+void sec_chance(long status){
+    INT32       Frame;
+    victim=realvic;
+    while (victim<63) {
+        //sleep(1);
+        //printf("----------------------------%x=?%x\n",Z502_PAGE_TBL_ADDR[frame[victim].pageID]&PTBL_REFERENCED_BIT,PTBL_REFERENCED_BIT);
+    if ((UINT16)Z502_PAGE_TBL_ADDR[frame[victim].pageID]&PTBL_REFERENCED_BIT!= PTBL_REFERENCED_BIT ) {//check the reference bit.
+        //printf("found it\n");
+        break;
+        }
+        realvic++;
+        if(realvic>63){
+            realvic=realvic%PHYS_MEM_PGS;
+            
+        }
+        victim=realvic;
+    }
+    Frame=(INT32)frame[victim].frameID;
+            
+    PAGE_HEAD[frame[victim].pid][frame[victim].pageID] = 64;
+    PAGE_HEAD[frame[victim].pid][frame[victim].pageID] &= 0x7FFF;
+    
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].disk =(INT32)frame[victim].pid+1;
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].sector=(INT32)frame[victim].pageID;
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].frame=(INT32)frame[victim].frameID;
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].page=(INT32)frame[victim].pageID;
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].isAvailable=FALSE;
+    
+    DISKreadOrWrite((long)(frame[victim].pid+1),
+                    (long)frame[victim].pageID,
+                    (char*)&MEMORY[Frame*PGSIZE],
+                    DISK_WRITE);
+    
+    if (!shadow_page_table[currentPCB->pid][status].isAvailable)
+    {
+        DISKreadOrWrite(shadow_page_table[currentPCB->pid][status].disk,
+                        shadow_page_table[currentPCB->pid][status].sector,
+                        (char*)&MEMORY[Frame* PGSIZE],
+                        DISK_READ);
+        
+        shadow_page_table[currentPCB->pid][status].isAvailable = TRUE;
+        shadow_page_table[currentPCB->pid][status].frame = NULL;
+        shadow_page_table[currentPCB->pid][status].page = status;
+        
+    }
+    
+    Z502_PAGE_TBL_ADDR[status] = (UINT16)Frame|0x8000;
+    frame[victim].pageID = status;
+    frame[victim].pid = currentPCB->pid;
+   
+}
+
+void FIFO(long status){
+    INT32       Frame;
+    Frame=(INT32)frame[victim].frameID;
+    
+    PAGE_HEAD[frame[victim].pid][frame[victim].pageID] = 64;
+    PAGE_HEAD[frame[victim].pid][frame[victim].pageID] &= 0x7FFF;
+    
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].disk =(INT32)frame[victim].pid+1;
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].sector=(INT32)frame[victim].pageID;
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].frame=(INT32)frame[victim].frameID;
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].page=(INT32)frame[victim].pageID;
+    shadow_page_table[frame[victim].pid][frame[victim].pageID].isAvailable=FALSE;
+    
+    DISKreadOrWrite((long)(frame[victim].pid+1),
+                    (long)frame[victim].pageID,
+                    (char*)&MEMORY[Frame*PGSIZE],
+                    DISK_WRITE);
+    
+    if (!shadow_page_table[currentPCB->pid][status].isAvailable)
+    {
+        DISKreadOrWrite(shadow_page_table[currentPCB->pid][status].disk,
+                        shadow_page_table[currentPCB->pid][status].sector,
+                        (char*)&MEMORY[Frame* PGSIZE],
+                        DISK_READ);
+        
+        shadow_page_table[currentPCB->pid][status].isAvailable = TRUE;
+        shadow_page_table[currentPCB->pid][status].frame = 0;
+        shadow_page_table[currentPCB->pid][status].page = status;
+        
+    }
+    
+    Z502_PAGE_TBL_ADDR[status] = (UINT16)Frame|0x8000;
+    frame[victim].pageID = status;
+    frame[victim].pid = currentPCB->pid;
+    victim++;
+    if(victim>63){
+        victim=victim%PHYS_MEM_PGS;
+    }
+
+}
+
+
+void transfer(INT32 ID){
+    int Status;
+    DISK tmp;
+    DISK tmp2;
+    CALL(MEM_WRITE(Z502DiskSetID, &ID));
+    CALL(MEM_READ(Z502DiskStatus, &Status));
+    READ_MODIFY(MEMORY_INTERLOCK_BASE+7, DO_LOCK, SUSPEND_UNTIL_LOCKED, &LockResult);
+    if(Status==DEVICE_FREE){
+        tmp=diskqueue[ID]->front;
+        //tmp2=diskqueue[ID]->front->next;
+        while (tmp!=NULL&&tmp->alreadyGetDisk==1) {
+            
+            EnQueueWithPrior(readyQueue, tmp->PCB);
+            //printf("i am %ld pushed into readyqueue----------\n",tmp->PCB->pid);
+            //schedule_printer("trans", tmp->PCB->pid);
+            //for(int i=1;i<4;i++){
+            //DiskQueuePrinter(diskqueue[i]);
+            //}
+            tmp=tmp->next;
+            //tmp2=tmp2->next;
+        }
+        diskqueue[ID]->front=tmp;
+        if(diskqueue[ID]->front!=NULL){
+            EnQueueWithPrior(readyQueue, diskqueue[ID]->front->PCB);
+            diskqueue[ID]->front=diskqueue[ID]->front->next;
+        }
+        //usleep(100);
+        
+    }
+    READ_MODIFY(MEMORY_INTERLOCK_BASE+7, DO_UNLOCK, SUSPEND_UNTIL_LOCKED, &LockResult);
+}
 
 void dispatch(){
+    
     while(readyQueue->front==NULL){
         int i;
-        //break;
-    
-    currentPCB=NULL;
-    for(i=1;i<2;i++){
-        EnQueueWithPrior(readyQueue, diskqueue[i]->front->PCB);
-        //schedule_printer("test", NULL);
+     
+        for(i=1;i<4;i++){
+            transfer(i);
+            }
+        //for(int i=1;i<4;i++){
+        //DiskQueuePrinter(diskqueue[i]);
+        //}
+        
+        //CALL(Z502Idle());
+        //CALL(printf("---------------------\n"));
+        //schedule_printer("idle", NULL);
     }
-        Z502Idle();
-    }
-    
+    //schedule_printer("trans", NULL);
+    //READ_MODIFY(MEMORY_INTERLOCK_BASE, DO_LOCK, SUSPEND_UNTIL_LOCKED,&LockResult);
     //printf("%ld--------------------\n",readyQueue->front->pid);
-    currentPCB=DeQueueWithoutFree(readyQueue);
-    schedule_printer("change", currentPCB->pid);
+    //while
     
-    Z502SwitchContext( SWITCH_CONTEXT_KILL_MODE, &currentPCB->context );
+    currentPCB=DeQueueWithoutFree(readyQueue);
+    
+    //READ_MODIFY(MEMORY_INTERLOCK_BASE, DO_UNLOCK, SUSPEND_UNTIL_LOCKED, &LockResult);
+    schedule_printer("change", currentPCB->pid);
+    for(int i=1;i<4;i++){
+        DiskQueuePrinter(diskqueue[i]);
+    }
+    Z502SwitchContext(SWITCH_CONTEXT_SAVE_MODE, &(currentPCB->context));
 }
 
 
@@ -121,29 +272,31 @@ void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
     int diskStatus;
     int deviceStatus;
     int i=1;
-    
+    //usleep(100);
+    //printf("----------ID1 %ld,ID2 %ld-readorwrite %d---------\n",diskID,sectorID,readOrWrite);
+    //schedule_printer("trans", NULL);
+
     MEM_WRITE(Z502DiskSetID, &diskID);
     
     MEM_READ(Z502DiskStatus, &diskStatus);
-    
-    if (diskStatus==DEVICE_FREE) {
-        //printf("----------ID1 %ld,ID2 %ld-readorwrite %d---------\n",diskID,sectorID,readOrWrite);
-        
-        //do nothing
-        //printf("i ama the %d----\n",diskStatus);
-    }
-    else{
+     usleep(50);
+     //printf("---------------------\n");
         while(diskStatus==DEVICE_IN_USE) {
             //printf("i ama the %ld----\n",diskID);
-            EnQueueDisk(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB));
+              EnQueueDisk(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB,0));
+            //EnQueueDiskHead(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB,1));
+           // for(int i=1;i<4;i++){
+            //    DiskQueuePrinter(diskqueue[i]);
+            //}
+           
             dispatch();
             CALL(MEM_WRITE(Z502DiskSetID, &diskID));
             MEM_READ(Z502DiskStatus, &diskStatus);
             
         }
-    }
+    
    //
-   
+    //printf("---------------------\n");
     if (readOrWrite==DISK_WRITE) {
     //printf("----------ID1 %ld,ID2 %ld-readorwrite %d---------\n",diskID,sectorID,readOrWrite);
     CALL(MEM_WRITE(Z502DiskSetID, &diskID));
@@ -155,12 +308,13 @@ void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
     CALL(MEM_WRITE(Z502DiskSetAction, &readOrWrite));
     diskStatus = 0;
     CALL(MEM_WRITE(Z502DiskStart, &diskStatus));
+        //schedule_printer("disk_wrt", currentPCB->pid);
     }
     
-    
+    //printf("---------------------\n");
     
  
-    //printf("---------------------\n");
+    //
     if(readOrWrite==DISK_READ){
     CALL(MEM_WRITE(Z502DiskSetID, &diskID));
   
@@ -171,6 +325,7 @@ void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
     CALL(MEM_WRITE(Z502DiskSetAction, &readOrWrite));
     diskStatus = 0;
     CALL(MEM_WRITE(Z502DiskStart, &diskStatus));
+         //schedule_printer("disk_read", currentPCB->pid);
     
     }
     
@@ -179,25 +334,86 @@ void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
     MEM_WRITE(Z502DiskSetID, &diskID);
     MEM_READ(Z502DiskStatus, &diskStatus);
  
-    EnQueueDiskHead(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB));
-    if(diskID==3)
-    printf("id-1 %ld id-2 %ld id-3 %ld",diskqueue[1]->front->diskID,diskqueue[2]->front->diskID,diskqueue[3]->front->diskID);
+    EnQueueDiskHead(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB,1));
+    
     dispatch();
-    Z502SwitchContext(SWITCH_CONTEXT_KILL_MODE, &currentPCB->context);
-
+    //EnQueueDisk(diskqueue[(INT32)diskID], InitDisk(1,sectorID, readOrWrite,currentPCB,0));
+    //EnQueueDiskHead(diskqueue[(INT32)diskID], InitDisk(2,sectorID, readOrWrite,currentPCB,1));
+    //for(int i=1;i<4;i++){
+       // DiskQueuePrinter(diskqueue[1]);
+    //}
+     
+   
+    /*if (readOrWrite==DISK_WRITE) {
+        //printf("----------ID1 %ld,ID2 %ld-readorwrite %d---------\n",diskID,sectorID,readOrWrite);
+        CALL(MEM_WRITE(Z502DiskSetID, &diskID));
+        
+        //printf("----------ID1 %ld,ID2 %ld-readorwrite %d---------\n",diskID,sectorID,readOrWrite);
+        CALL(MEM_WRITE(Z502DiskSetSector, &sectorID));
+        CALL(MEM_WRITE(Z502DiskSetBuffer, (INT32 *)buffer));
+        
+        CALL(MEM_WRITE(Z502DiskSetAction, &readOrWrite));
+        diskStatus = 0;
+        CALL(MEM_WRITE(Z502DiskStart, &diskStatus));
+        MEM_WRITE(Z502DiskSetID, &diskID);
+        
+        MEM_READ(Z502DiskStatus, &diskStatus);
+        printf("-----------------------------------wo kai shi le a \n");
+        while(diskStatus==DEVICE_IN_USE){
+            printf("-----------------------------------wo zaijixu \n");
+            for(int i=1;i<30;i++){
+                CALL();;
+            }
+            MEM_WRITE(Z502DiskSetID, &diskID);
+            
+            MEM_READ(Z502DiskStatus, &diskStatus);
+        }
+    }
+    
+    //usleep(1000);
+    
+    
+    //
+    if(readOrWrite==DISK_READ){
+        CALL(MEM_WRITE(Z502DiskSetID, &diskID));
+        
+        CALL(MEM_WRITE(Z502DiskSetSector, &sectorID));
+        CALL(MEM_WRITE(Z502DiskSetBuffer, (INT32 *)buffer));
+        
+        
+        CALL(MEM_WRITE(Z502DiskSetAction, &readOrWrite));
+        diskStatus = 0;
+        CALL(MEM_WRITE(Z502DiskStart, &diskStatus));
+        printf("-----------------------------------wo kai shi le a \n");
+        MEM_WRITE(Z502DiskSetID, &diskID);
+        
+        MEM_READ(Z502DiskStatus, &diskStatus);
+        while(diskStatus==DEVICE_IN_USE){
+            printf("-----------------------------------wo zaijixu \n");
+            for(int i=1;i<30;i++){
+                CALL();
+            }
+            MEM_WRITE(Z502DiskSetID, &diskID);
+            
+            MEM_READ(Z502DiskStatus, &diskStatus);
+        }
+        
+    }
+    //usleep(1000);*/
 }
 
 
 void memory_printer()
 {
     int i = 0, state = 0;
-    static int printCtl = 0;
+    
+    if (counter % modelctrl == 0){
     //if (enableMPrinter != 0 && printCtl % enableMPrinter == 0)
     //{
         READ_MODIFY(MEMORY_INTERLOCK_BASE + 14, DO_LOCK, SUSPEND_UNTIL_LOCKED, &LockResultPrinter);
-        for (i = 0; i < (int)PHYS_MEM_PGS; i++)
+        for (i = 0; i < PHYS_MEM_PGS; i++)
         {
-            if (frame[i].pageID >= 0 && frame[i].pageID <= 1023)
+            if (frame[i].pageID >= 0 && frame[i].pageID <VIRTUAL_MEM_PAGES)
             {
                 state = ((Z502_PAGE_TBL_ADDR[frame[i].pageID] & PTBL_VALID_BIT) >> 13) +
                 ((Z502_PAGE_TBL_ADDR[frame[i].pageID] & PTBL_MODIFIED_BIT) >> 13) +
@@ -208,24 +424,41 @@ void memory_printer()
         }
         
         MP_print_line();
-        // reset action to NULL
         
         printf("\n");
         READ_MODIFY(MEMORY_INTERLOCK_BASE + 14, DO_UNLOCK, SUSPEND_UNTIL_LOCKED, &LockResultPrinter);
-   // }
+        
+    }
+    counter++;
     //printCtl++;
 }
 
 void initFrame(){
     int i;
-    for (i= 0; i < (int)PHYS_MEM_PGS; i++)
+    for (i= 0; i < PHYS_MEM_PGS; i++)
     {
         frame[i].frameID = i;
         frame[i].isAvailable = 1;
         frame[i].pageID = -1;
     }
 }
-
+void shadow_page_table_Init()
+{
+    int i = 0;
+    int j = 0;
+    for(i = 0; i < MAX_NUMBER_OF_DISKS; i++)
+    {
+        for(j = 0; j < VIRTUAL_MEM_PAGES; j++)
+        {
+            shadow_page_table[i][j].disk = NULL;
+            shadow_page_table[i][j].page = NULL;
+            shadow_page_table[i][j].isAvailable = TRUE;
+            
+        }
+    }
+    
+    
+}
 
 
 
@@ -240,6 +473,7 @@ void    interrupt_handler( void ) {
     INT32              Index = 0;
     PCB                 tmp;
     INT32               sleepTime;
+    int                 i;
     //printf("i am the test2========\n");
     //printf("i am here----------\n");
     // Get cause of interrupt
@@ -282,11 +516,15 @@ void    interrupt_handler( void ) {
     }
    
    else if(device_id>TIMER_INTERRUPT&&device_id<=MAX_NUMBER_OF_DISKS+TIMER_INTERRUPT){
-       
-       
+       READ_MODIFY(MEMORY_INTERLOCK_BASE+10,DO_LOCK, SUSPEND_UNTIL_LOCKED, &TimeLockResult);
+       for(i =1;i<4;i++){
+           if(device_id-4!=i){
+               transfer(i);
+           }
+       }
+       READ_MODIFY(MEMORY_INTERLOCK_BASE+10,DO_UNLOCK, SUSPEND_UNTIL_LOCKED, &TimeLockResult);
     }
     
-   
     // Clear out this device - we're done with it
     MEM_WRITE(Z502InterruptClear, &Index );
  
@@ -302,7 +540,12 @@ void    fault_handler( void )
     INT32       device_id;
     INT32       status;
     INT32       Index = 0;
-    static BOOL  Flag = FALSE;
+    INT32       page;
+    INT32       Frame;
+    
+    INT32       disk;
+    INT32       sector;
+    static BOOL  alltoken = FALSE;
     int             i;
     
     // Get cause of interrupt
@@ -324,8 +567,7 @@ void    fault_handler( void )
         
         
         if (status >= VIRTUAL_MEM_PAGES){ //Address is larger than page table,
-            
-           // printf("hihihihihihihihihihihihih\n");
+            printf("end??????????????\n");
             CALL(Z502Halt());
         }
         
@@ -339,37 +581,37 @@ void    fault_handler( void )
             PAGE_HEAD[currentPCB->pid] = Z502_PAGE_TBL_ADDR;
         }
         
-        if (!Flag) {
+        if (!alltoken) {
             for (i=0; i<PHYS_MEM_PGS; i++) {
-                if(frame[i].isAvailable==1){
+                if(frame[i].isAvailable){
                     frame[i].isAvailable=0;
                     frame[i].pageID = status;
                     frame[i].pid = currentPCB->pid;
                     Z502_PAGE_TBL_ADDR[status] = (UINT16)frame[i].frameID | 0x8000;
-                    printf("-------------------frame[%ld] occupied by page %ld\n",frame[i].frameID
+                    printf("frame[%ld]  page %ld\n",frame[i].frameID
                            ,frame[i].pageID);
                     break;
                 }
                 
             }
             if (i==PHYS_MEM_PGS) {
-                Flag = TRUE;
+                alltoken = TRUE;
             }
             
         }
-        
-        //mark this page table slot as valid
-        
-        
-        //printf("----------------%d\n",0x8000);
-        
-        
+        if(alltoken){
+            
+            FIFO(status);
+            //sec_chance(status);
+
+        }
+       // sleep(1);
         if (status >= Z502_PAGE_TBL_LENGTH){//Address is larger than page table,
             
             CALL(Z502Halt());
         }
     }
-    sleep(3);
+    //sleep(3);
     memory_printer();
 
 }                                       /* End of fault_handler */
@@ -397,7 +639,7 @@ INT32 start_timer(long *SleepTime){
     INT32 wakeuptime;
     CALL(MEM_READ(Z502ClockStatus, &Time));
     wakeuptime = Time + (INT32)SleepTime;
-    
+    printf("SleepTime: %d\n",(INT32)SleepTime);
    
     tmp ->wakeuptime = wakeuptime;
     
@@ -794,10 +1036,10 @@ void DiskQueuePrinter(DiskQueue *queue){
     tmp = queue->front;
     while (tmp!=NULL) {
         
-        printf("DISK-%ld sector %ld\n",tmp->diskID,tmp->sectorID);
+        printf("DISK-%ld PCB%ld(%d)",tmp->diskID,tmp->PCB->pid,tmp->alreadyGetDisk);
         tmp= tmp->next;
     }
-   // printf("queue size------->%d\n",queue->size);
+    printf("\n");
     CALL(READ_MODIFY(MEMORY_INTERLOCK_BASE+1, DO_UNLOCK, SUSPEND_UNTIL_LOCKED,&LockResult));
 }
 
@@ -1156,9 +1398,7 @@ void    osInit( int argc, char *argv[]  ) {
     timerQueue = InitQueue();
     suspendQueue = InitQueue();
     msgQueue = InitMsgQueue();
-    for (l=0; l<MAX_NUMBER_OF_DISKS; l++) {
-         diskqueue[l] = InitDiskQueue();
-    }
+    
     diskStack = InitDiskStack();
     /* Demonstrates how calling arguments are passed thru to here       */
     
@@ -1252,17 +1492,52 @@ void    osInit( int argc, char *argv[]  ) {
         
     }
     else if(( argc > 1 ) && ( strcmp( argv[1], "test2c" ) == 0 ) ){
+        for (l=0; l<MAX_NUMBER_OF_DISKS; l++) {
+            diskqueue[l] = InitDiskQueue();
+        }
         //printerClt=0;
         Z502MakeContext( &next_context, (void *)test2c, USER_MODE );
         
     }
     else if(( argc > 1 ) && ( strcmp( argv[1], "test2d" ) == 0 ) ){
+        for (l=0; l<MAX_NUMBER_OF_DISKS; l++) {
+            diskqueue[l] = InitDiskQueue();
+        }
         
         Z502MakeContext( &next_context, (void *)test2d, USER_MODE );
         
     }
     else if(( argc > 1 ) && ( strcmp( argv[1], "test2g" ) == 0 ) ){
+        for (l=0; l<MAX_NUMBER_OF_DISKS; l++) {
+            diskqueue[l] = InitDiskQueue();
+        }
         
+        Z502MakeContext( &next_context, (void *)test2g, USER_MODE );
+        
+    }
+    else if(( argc > 1 ) && ( strcmp( argv[1], "test2e" ) == 0 ) ){
+        for (l=0; l<MAX_NUMBER_OF_DISKS; l++) {
+            diskqueue[l] = InitDiskQueue();
+        }
+        shadow_page_table_Init();
+        Z502MakeContext( &next_context, (void *)test2e, USER_MODE );
+        
+    }
+    else if(( argc > 1 ) && ( strcmp( argv[1], "test2f" ) == 0 ) ){
+        for (l=0; l<MAX_NUMBER_OF_DISKS; l++) {
+            diskqueue[l] = InitDiskQueue();
+        }
+        printerClt=0;
+        modelctrl=10;
+        shadow_page_table_Init();
+        Z502MakeContext( &next_context, (void *)test2f, USER_MODE );
+        
+    }
+    else if(( argc > 1 ) && ( strcmp( argv[1], "test2g" ) == 0 ) ){
+        for (l=0; l<MAX_NUMBER_OF_DISKS; l++) {
+            diskqueue[l] = InitDiskQueue();
+        }
+        shadow_page_table_Init();
         Z502MakeContext( &next_context, (void *)test2g, USER_MODE );
         
     }

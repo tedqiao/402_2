@@ -332,7 +332,7 @@ void MemoryCommon(INT32 VirtualAddress, char *data_ptr, BOOL read_or_write) {
         data_ptr[1] = MEMORY[PhysicalAddress[1]];
         data_ptr[2] = MEMORY[PhysicalAddress[2]];
         data_ptr[3] = MEMORY[PhysicalAddress[3]];
-        printf("-------%d %d %d %d\n",data_ptr[0],data_ptr[1],data_ptr[2],data_ptr[3]);
+        //printf("-------%d %d %d %d\n",data_ptr[0],data_ptr[1],data_ptr[2],data_ptr[3]);
         ptbl_bits = PTBL_REFERENCED_BIT;
     }
     
@@ -1256,6 +1256,7 @@ void Z502SwitchContext(BOOL kill_or_save, void **IncomingContextPointer) {
      //printf("this is a new thread %d\n",pthread_self());
   // printf("--------------------%d\n",(*context_ptr)->structure_id);
     if ((*context_ptr)->structure_id != CONTEXT_STRUCTURE_ID) {
+        printf("-----------------wrong here\n");
         ReleaseLock(HardwareLock, "Z502SwitchContext");
         HardwareFault(CPU_ERROR, (INT16) ERR_ILLEGAL_ADDRESS);
     }
