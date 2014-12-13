@@ -109,16 +109,18 @@ void DiskQueuePrinter(DiskQueue *queue);
 void transfer(INT32 ID);
 void FIFO(long status);
 void sec_chance(long status);
-
-void sec_chance(long status){
-    INT32       Frame;
-    victim=realvic;
+void mapping();
+void findVictim();
+/************************************************************************
+ 
+ ************************************************************************/
+void findVictim(){
     while (victim<63) {
         //sleep(1);
         //printf("----------------------------%x=?%x\n",Z502_PAGE_TBL_ADDR[frame[victim].pageID]&PTBL_REFERENCED_BIT,PTBL_REFERENCED_BIT);
-    if ((UINT16)Z502_PAGE_TBL_ADDR[frame[victim].pageID]&PTBL_REFERENCED_BIT!= PTBL_REFERENCED_BIT ) {//check the reference bit.
-        //printf("found it\n");
-        break;
+        if ((UINT16)Z502_PAGE_TBL_ADDR[frame[victim].pageID]&PTBL_REFERENCED_BIT!= PTBL_REFERENCED_BIT ) {//check the reference bit.
+            //printf("found it\n");
+            break;
         }
         realvic++;
         if(realvic>63){
@@ -127,16 +129,31 @@ void sec_chance(long status){
         }
         victim=realvic;
     }
-    Frame=(INT32)frame[victim].frameID;
-            
-    PAGE_HEAD[frame[victim].pid][frame[victim].pageID] = 64;
-    PAGE_HEAD[frame[victim].pid][frame[victim].pageID] &= 0x7FFF;
-    
+}
+/************************************************************************
+ 
+ ************************************************************************/
+void mapping(){
     shadow_page_table[frame[victim].pid][frame[victim].pageID].disk =(INT32)frame[victim].pid+1;
     shadow_page_table[frame[victim].pid][frame[victim].pageID].sector=(INT32)frame[victim].pageID;
     shadow_page_table[frame[victim].pid][frame[victim].pageID].frame=(INT32)frame[victim].frameID;
     shadow_page_table[frame[victim].pid][frame[victim].pageID].page=(INT32)frame[victim].pageID;
     shadow_page_table[frame[victim].pid][frame[victim].pageID].isAvailable=FALSE;
+
+}
+/************************************************************************
+ 
+ ************************************************************************/
+void sec_chance(long status){
+    INT32       Frame;
+    victim=realvic;
+    findVictim();
+    Frame=(INT32)frame[victim].frameID;
+            
+    PAGE_HEAD[frame[victim].pid][frame[victim].pageID] = 64;
+    PAGE_HEAD[frame[victim].pid][frame[victim].pageID] &= 0x7FFF;
+    
+    mapping();
     
     DISKreadOrWrite((long)(frame[victim].pid+1),
                     (long)frame[victim].pageID,
@@ -161,7 +178,9 @@ void sec_chance(long status){
     frame[victim].pid = currentPCB->pid;
    
 }
-
+/************************************************************************
+ 
+ ************************************************************************/
 void FIFO(long status){
     INT32       Frame;
     Frame=(INT32)frame[victim].frameID;
@@ -169,11 +188,7 @@ void FIFO(long status){
     PAGE_HEAD[frame[victim].pid][frame[victim].pageID] = 64;
     PAGE_HEAD[frame[victim].pid][frame[victim].pageID] &= 0x7FFF;
     
-    shadow_page_table[frame[victim].pid][frame[victim].pageID].disk =(INT32)frame[victim].pid+1;
-    shadow_page_table[frame[victim].pid][frame[victim].pageID].sector=(INT32)frame[victim].pageID;
-    shadow_page_table[frame[victim].pid][frame[victim].pageID].frame=(INT32)frame[victim].frameID;
-    shadow_page_table[frame[victim].pid][frame[victim].pageID].page=(INT32)frame[victim].pageID;
-    shadow_page_table[frame[victim].pid][frame[victim].pageID].isAvailable=FALSE;
+    mapping();
     
     DISKreadOrWrite((long)(frame[victim].pid+1),
                     (long)frame[victim].pageID,
@@ -202,7 +217,9 @@ void FIFO(long status){
     }
 
 }
-
+/************************************************************************
+ 
+ ************************************************************************/
 
 void transfer(INT32 ID){
     int Status;
@@ -236,7 +253,7 @@ void transfer(INT32 ID){
     READ_MODIFY(MEMORY_INTERLOCK_BASE+7, DO_UNLOCK, SUSPEND_UNTIL_LOCKED, &LockResult);
 }
 
-void dispatch(){
+/*void dispatch(){
     
     while(readyQueue->front==NULL){
         int i;
@@ -266,8 +283,10 @@ void dispatch(){
     }
     Z502SwitchContext(SWITCH_CONTEXT_SAVE_MODE, &(currentPCB->context));
 }
-
-
+*/
+/************************************************************************
+ 
+ ************************************************************************/
 void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
     int diskStatus;
     int deviceStatus;
@@ -284,12 +303,25 @@ void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
         while(diskStatus==DEVICE_IN_USE) {
             //printf("i ama the %ld----\n",diskID);
               EnQueueDisk(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB,0));
-            //EnQueueDiskHead(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB,1));
-           // for(int i=1;i<4;i++){
-            //    DiskQueuePrinter(diskqueue[i]);
-            //}
-           
-            dispatch();
+            
+            while(readyQueue->front==NULL){
+                int i;
+                
+                for(i=1;i<4;i++){
+                    transfer(i);
+                }
+            }
+            
+            
+            currentPCB=DeQueueWithoutFree(readyQueue);
+            
+            //READ_MODIFY(MEMORY_INTERLOCK_BASE, DO_UNLOCK, SUSPEND_UNTIL_LOCKED, &LockResult);
+            schedule_printer("change", currentPCB->pid);
+            for(int i=1;i<4;i++){
+                DiskQueuePrinter(diskqueue[i]);
+            }
+            Z502SwitchContext(SWITCH_CONTEXT_SAVE_MODE, &(currentPCB->context));
+            //dispatch();
             CALL(MEM_WRITE(Z502DiskSetID, &diskID));
             MEM_READ(Z502DiskStatus, &diskStatus);
             
@@ -335,8 +367,23 @@ void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
     MEM_READ(Z502DiskStatus, &diskStatus);
  
     EnQueueDiskHead(diskqueue[(INT32)diskID], InitDisk(diskID,sectorID, readOrWrite,currentPCB,1));
+    while(readyQueue->front==NULL){
+        int i;
+        
+        for(i=1;i<4;i++){
+            transfer(i);
+        }
+    }
+    currentPCB=DeQueueWithoutFree(readyQueue);
+    schedule_printer("change", currentPCB->pid);
+    for(int i=1;i<4;i++){
+        DiskQueuePrinter(diskqueue[i]);
+    }
+    Z502SwitchContext(SWITCH_CONTEXT_SAVE_MODE, &(currentPCB->context));
+
     
-    dispatch();
+    //
+    //dispatch();
     //EnQueueDisk(diskqueue[(INT32)diskID], InitDisk(1,sectorID, readOrWrite,currentPCB,0));
     //EnQueueDiskHead(diskqueue[(INT32)diskID], InitDisk(2,sectorID, readOrWrite,currentPCB,1));
     //for(int i=1;i<4;i++){
@@ -401,7 +448,9 @@ void DISKreadOrWrite(long diskID, long sectorID, char* buffer, int readOrWrite){
     }
     //usleep(1000);*/
 }
-
+/************************************************************************
+ 
+ ************************************************************************/
 
 void memory_printer()
 {
@@ -432,16 +481,21 @@ void memory_printer()
     counter++;
     //printCtl++;
 }
+/************************************************************************
 
+ ************************************************************************/
 void initFrame(){
     int i;
     for (i= 0; i < PHYS_MEM_PGS; i++)
     {
         frame[i].frameID = i;
         frame[i].isAvailable = 1;
-        frame[i].pageID = -1;
+        frame[i].pageID = NULL;
     }
 }
+/************************************************************************
+ 
+ ************************************************************************/
 void shadow_page_table_Init()
 {
     int i = 0;
@@ -601,8 +655,8 @@ void    fault_handler( void )
         }
         if(alltoken){
             
-            FIFO(status);
-            //sec_chance(status);
+            //FIFO(status);
+            sec_chance(status);
 
         }
        // sleep(1);
@@ -1519,6 +1573,7 @@ void    osInit( int argc, char *argv[]  ) {
         for (l=0; l<MAX_NUMBER_OF_DISKS; l++) {
             diskqueue[l] = InitDiskQueue();
         }
+        modelctrl=10;
         shadow_page_table_Init();
         Z502MakeContext( &next_context, (void *)test2e, USER_MODE );
         
@@ -1528,7 +1583,7 @@ void    osInit( int argc, char *argv[]  ) {
             diskqueue[l] = InitDiskQueue();
         }
         printerClt=0;
-        modelctrl=10;
+        modelctrl=100;
         shadow_page_table_Init();
         Z502MakeContext( &next_context, (void *)test2f, USER_MODE );
         
