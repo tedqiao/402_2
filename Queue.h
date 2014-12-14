@@ -41,12 +41,8 @@ typedef struct DiskStack{
 
 typedef struct disk
 {
-    int readOrWrite;
-    long diskID;    // diskID may not be used here
-    long sectorID;
     PCB PCB;
-    int alreadyGetDisk;
-    //INT32 readOrWrite;
+    int GetDisk;
     DISK next;
     
 } disk;
@@ -56,7 +52,7 @@ typedef struct
     long frameID;
     long pageID;
     long pid;
-    int isAvailable;
+    BOOL occupied;
     int Rbit;
 } FRAME;
 
@@ -94,12 +90,12 @@ typedef struct message {
 }message;
 
 
-typedef struct shadow
+typedef struct Shadow_Page_Table
 {
-    int page;
+    
     int disk;
     int sector;
-    int frame;
+    int page;
     BOOL isAvailable;
 } Shadow_Page_Table;
 
@@ -139,7 +135,7 @@ MSG DeQueueMsg(MsgQueue *queue);
 DiskStack *InitDiskStack();
 DiskQueue *InitDiskQueue();
 
-DISK InitDisk(long diskID,long sectorID, int readOrWrite,PCB pnode,int token);
+DISK InitDisk(PCB pnode,int token);
 void enStack(DiskStack *stack,DISK disk);
 DISK popStack(DiskStack *stack);
 

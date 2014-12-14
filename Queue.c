@@ -401,15 +401,10 @@ DISK EnQueueDisk(DiskQueue *queue,DISK pnode){
 }
 
 
-DISK InitDisk(long diskID,long sectorID, int readOrWrite,PCB pnode,int token){
+DISK InitDisk(PCB pnode,int token){
     DISK mydisk=(DISK)malloc(sizeof(disk));
-    if (diskID<0) {
-        return NULL;
-    }
-    mydisk->diskID = diskID;
-    mydisk->sectorID=sectorID;
-    mydisk->readOrWrite=readOrWrite;
-    mydisk->alreadyGetDisk=token;
+
+    mydisk->GetDisk=token;
     mydisk->next=NULL;
     mydisk->PCB = pnode;
     //mydisk->PCB->pid=pnode->pid;
@@ -426,10 +421,7 @@ DISK InitDisk2(long diskID,long sectorID, int readOrWrite,PCB pnode){
     if (diskID<0) {
         return NULL;
     }
-    mydisk->diskID = diskID;
-    mydisk->sectorID=sectorID;
-    mydisk->readOrWrite=readOrWrite;
-    mydisk->alreadyGetDisk=0;
+    mydisk->GetDisk=0;
     mydisk->next=NULL;
     mydisk->PCB = pnode;
     // mydisk->PCB->pid=
